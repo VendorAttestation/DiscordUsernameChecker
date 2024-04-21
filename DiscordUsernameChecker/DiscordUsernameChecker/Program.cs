@@ -1,4 +1,5 @@
-﻿using Spectre.Console;
+﻿using HtmlAgilityPack;
+using Spectre.Console;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
@@ -11,7 +12,6 @@ internal static class Program
         public bool taken { get; set; }
         public double retry_after { get; set; }
     }
-
     private static ConcurrentQueue<string> usernameQueue = new ConcurrentQueue<string>();
     private static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     public static Settings? appSettings;
@@ -21,6 +21,7 @@ internal static class Program
     private static object ValidLock = new object();
     private static object DebugLock = new object();
     private static string date = DateTime.Now.ToString("MM-dd-yyyy");
+    private static string UserAgent = "";
     static WebProxy GetProxy()
     {
         try
@@ -77,14 +78,25 @@ internal static class Program
 
     static async Task Main(string[] args)
     {
-        Console.Title = $"Discord Username Checker V1.2 / https://github.com/TheVisual";
+        Console.Title = $"Discord Username Checker V1.3 / https://github.com/TheVisual";
 
         appSettings = new("config.ini");
 
-        if (appSettings.Threads > 500 || appSettings.Threads < 1)
+        if (appSettings.Threads > 1000 || appSettings.Threads < 1)
         {
-            AnsiConsole.Write(new Markup($"[red]You may only use between 1-500 threads.[/]"));
+            AnsiConsole.Write(new Markup($"[red]You may only use between 1-1000 threads.[/]"));
         }
+        var url = "https://www.useragents.me/#latest-windows-desktop-useragents";
+        var httpClient = new HttpClient();
+        var response = await httpClient.GetStringAsync(url);
+
+        var doc = new HtmlDocument();
+        doc.LoadHtml(response);
+
+        var xpath = "//h2[@id='latest-windows-desktop-useragents']/following-sibling::div//tr[td[contains(text(), 'Chrome')]]/td[2]/div/textarea";
+        var userAgentNode = doc.DocumentNode.SelectSingleNode(xpath);
+        UserAgent = userAgentNode?.InnerText.Trim() ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
         await LoadUsernamesAsync("usernames.txt");
         var tasks = new Task[appSettings.Threads];
         for (int i = 0; i < appSettings.Threads; i++)
@@ -119,8 +131,7 @@ internal static class Program
                             httpClient.DefaultRequestHeaders.Clear();
                             httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
                             httpClient.DefaultRequestHeaders.Add("X-Discord-Locale", "en-US");
-                            httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36");
-                            httpClient.DefaultRequestHeaders.Add("X-Super-Properties", "eyJvcyI6IldpbmRvd3MiLCJicm93c2VyIjoiQ2hyb21lIiwiZGV2aWNlIjoiIiwic3lzdGVtX2xvY2FsZSI6ImRlLURFIiwiYnJvd3Nlcl91c2VyX2FnZW50IjoiTW96aWxsYS81LjAgKFdpbmRvd3MgTlQgMTAuMDsgV2luNjQ7IHg2NCkgQXBwbGVXZWJLaXQvNTM3LjM2IChLSFRNTCwgbGlrZSBHZWNrbykgQ2hyb21lLzEyMy4wLjAuMCBTYWZhcmkvNTM3LjM2IiwiYnJvd3Nlcl92ZXJzaW9uIjoiMTIzLjAuMC4wIiwib3NfdmVyc2lvbiI6IjEwIiwicmVmZXJyZXIiOiJodHRwczovL2Rpc2NvcmQuY29tLyIsInJlZmVycmluZ19kb21haW4iOiJkaXNjb3JkLmNvbSIsInJlZmVycmVyX2N1cnJlbnQiOiJodHRwczovL2Rpc2NvcmQuY29tLyIsInJlZmVycmluZ19kb21haW5fY3VycmVudCI6ImRpc2NvcmQuY29tIiwicmVsZWFzZV9jaGFubmVsIjoic3RhYmxlIiwiY2xpZW50X2J1aWxkX251bWJlciI6Mjg0NDIyLCJjbGllbnRfZXZlbnRfc291cmNlIjpudWxsfQ==");
+                            httpClient.DefaultRequestHeaders.Add("User-Agent", UserAgent);
 
                             PostJson postJson = new PostJson
                             {
