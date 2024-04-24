@@ -70,7 +70,7 @@ internal static class Program
     static async Task LoadUsernamesAsync(string filePath)
     {
         var usernames = await File.ReadAllLinesAsync(filePath);
-        foreach (var username in usernames)
+        foreach (var username in usernames.Distinct())
         {
             usernameQueue.Enqueue(username);
         }
