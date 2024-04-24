@@ -82,10 +82,6 @@ internal static class Program
 
         appSettings = new("config.ini");
 
-        if (appSettings.Threads > 1000 || appSettings.Threads < 1)
-        {
-            AnsiConsole.Write(new Markup($"[red]You may only use between 1-1000 threads.[/]"));
-        }
         var url = "https://www.useragents.me/#latest-windows-desktop-useragents";
         var httpClient = new HttpClient();
         var response = await httpClient.GetStringAsync(url);
@@ -127,7 +123,6 @@ internal static class Program
                     {
                         try
                         {
-                        Retry:
                             httpClient.DefaultRequestHeaders.Clear();
                             httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
                             httpClient.DefaultRequestHeaders.Add("X-Discord-Locale", "en-US");
@@ -156,7 +151,7 @@ internal static class Program
                                     AnsiConsole.Markup($"[yellow]Ratelimited Retrying After {jsonObject.retry_after} seconds...[/]\n");
                                 }
                                 await Task.Delay(TimeSpan.FromSeconds(jsonObject.retry_after));
-                                goto Retry;
+                                usernameQueue.Enqueue(username);
                             }
                             if (!jsonObject.taken)
                             {
@@ -169,6 +164,7 @@ internal static class Program
                         }
                         catch (HttpRequestException e)
                         {
+                            usernameQueue.Enqueue(username);
                             if (appSettings.Debug)
                             {
                                 lock (DebugLock)
@@ -181,6 +177,7 @@ internal static class Program
                 }
                 catch (Exception e)
                 {
+                    usernameQueue.Enqueue(username);
                     if (appSettings.Debug)
                     {
                         lock (DebugLock)
