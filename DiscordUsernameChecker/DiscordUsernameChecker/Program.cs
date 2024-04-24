@@ -78,7 +78,7 @@ internal static class Program
 
     static async Task Main(string[] args)
     {
-        Console.Title = $"Discord Username Checker V1.3 / https://github.com/TheVisual";
+        Console.Title = $"Discord Username Checker V1.4 / https://github.com/TheVisual";
 
         appSettings = new("config.ini");
 
