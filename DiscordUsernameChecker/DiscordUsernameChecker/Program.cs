@@ -153,7 +153,7 @@ internal static class Program
                                 await Task.Delay(TimeSpan.FromSeconds(jsonObject.retry_after));
                                 usernameQueue.Enqueue(username);
                             }
-                            if (!jsonObject.taken)
+                            else if (!jsonObject.taken)
                             {
                                 AnsiConsole.Markup($"[green]Username Available: {username}[/]\n");
                                 lock (ValidLock)
@@ -164,7 +164,6 @@ internal static class Program
                         }
                         catch (HttpRequestException e)
                         {
-                            usernameQueue.Enqueue(username);
                             if (appSettings.Debug)
                             {
                                 lock (DebugLock)
@@ -172,12 +171,12 @@ internal static class Program
                                     File.AppendAllText($"DebugLogs-{date}.txt", e.Message);
                                 }
                             }
+                            usernameQueue.Enqueue(username);
                         }
                     }
                 }
                 catch (Exception e)
                 {
-                    usernameQueue.Enqueue(username);
                     if (appSettings.Debug)
                     {
                         lock (DebugLock)
@@ -185,6 +184,7 @@ internal static class Program
                             File.AppendAllText($"DebugLogs-{date}.txt", e.Message);
                         }
                     }
+                    usernameQueue.Enqueue(username);
                 }
             }
         }
