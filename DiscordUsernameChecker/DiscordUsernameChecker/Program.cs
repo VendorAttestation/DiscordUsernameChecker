@@ -161,6 +161,11 @@ internal static class Program
                                     File.AppendAllText($"ValidUsernames-{date}.txt", $"{username}\n");
                                 }
                             }
+                            else
+                            {
+                                // Something went wrong renqueue
+                                usernameQueue.Enqueue(username);
+                            }
                         }
                         catch (HttpRequestException e)
                         {
