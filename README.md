@@ -7,6 +7,9 @@ DiscordUsernameChecker is a username check for availability
 - Auto Claimer
 
 # Current Features
+- Proxy Support (IP:PORT / IP:PORT:USERNAME:PASSWORD) Formats
+- Retry After RateLimit to never miss a name
+- Auto Update User Agent
 - Extended Logging
 - Async
 - Linux Support
