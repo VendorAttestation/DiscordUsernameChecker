@@ -22,6 +22,6 @@ DiscordUsernameChecker is a username check for availability
 - Extended Logging [✔️]
 - Async [✔️]
 - Latest Discord API [✔️]
-- 
+
 # Credits
 - https://github.com/TheVisual (Program)
