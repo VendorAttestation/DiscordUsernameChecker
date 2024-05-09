@@ -1,18 +1,14 @@
 ﻿using Discord;
-using Discord.Rest;
-using HtmlAgilityPack;
 using Spectre.Console;
 using System.Collections.Concurrent;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Threading;
 internal static class Program
 {
     static Program()
     {
-        Console.Title = $"Discord Username Checker V1.6 / https://github.com/TheVisual";
+        Console.Title = $"Discord Username Checker V1.7 / https://github.com/TheVisual";
 
         appSettings = new("config.ini");
     }
@@ -21,18 +17,67 @@ internal static class Program
     private static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     public static Settings? appSettings;
     internal static string[] Proxies = File.ReadAllLines("proxies.txt");
-    internal static int ProxyIndex = 0;
-    private static readonly object claimLock = new object();
-    private static readonly object ValidLock = new object();
+	internal static string[] CaptchaProxies = File.ReadAllLines("captcha_proxies.txt");
+	internal static int ProxyIndex = 0;
+	internal static int CaptchaProxyIndex = 0;
+	private static readonly object ValidLock = new object();
     private static readonly object DebugLock = new object();
-    private static string UserAgent = "";
     private static string date = DateTime.Now.ToString("MM-dd-yyyy");
     public class CheckJson
     {
         public bool taken { get; set; }
         public double retry_after { get; set; }
     }
-    static WebProxy GetProxy()
+	public class Data
+	{
+		public string sitekey { get; set; }
+		public string url { get; set; }
+		public string proxy { get; set; }
+		public string rqdata { get; set; }
+	}
+
+	public class createTask
+	{
+		public string task_type { get; set; }
+		public string api_key { get; set; }
+		public Data data { get; set; }
+	}
+
+	public class createTaskResponse
+	{
+		public bool error { get; set; }
+		public string task_id { get; set; }
+	}
+
+	public class getTaskData
+	{
+		public string task_id { get; set; }
+		public string api_key { get; set; }
+	}
+
+	public class getTaskDataResponse
+	{
+		public bool error { get; set; }
+		public getTaskDataTask task { get; set; }
+	}
+
+	public class getTaskDataTask
+	{
+		public string captcha_key { get; set; }
+		public bool refunded { get; set; }
+		public string state { get; set; }
+	}
+
+	public class CaptchaStuff
+	{
+		public List<string> captcha_key { get; set; }
+		public string captcha_sitekey { get; set; }
+		public string captcha_service { get; set; }
+		public string captcha_rqdata { get; set; }
+		public string captcha_rqtoken { get; set; }
+	}
+
+	static WebProxy GetProxy()
     {
         try
         {
@@ -78,7 +123,32 @@ internal static class Program
         }
     }
 
-    static async Task LoadUsernamesAsync(string filePath)
+	static string GetCaptchaProxy()
+	{
+		try
+		{
+			string proxyAddress;
+
+			lock (CaptchaProxies)
+			{
+				Random random = new Random();
+
+				if (CaptchaProxyIndex >= CaptchaProxies.Length)
+				{
+					CaptchaProxyIndex = 0;
+				}
+
+				proxyAddress = CaptchaProxies[CaptchaProxyIndex++];
+			}
+			return proxyAddress;
+		}
+		catch (Exception)
+		{
+			throw new ArgumentException("Invalid proxy.");
+		}
+	}
+
+	static async Task LoadUsernamesAsync(string filePath)
     {
         var usernames = await File.ReadAllLinesAsync(filePath);
         foreach (var username in usernames.Distinct())
@@ -112,7 +182,7 @@ internal static class Program
         public string password { get; set; }
     }
 
-    public static async Task PostToDiscordWebhook(string usernameClaimed, int statusCode, CancellationToken cancellationToken)
+    public static async Task PostToDiscordWebhook(string usernameClaimed, int statusCode)
     {
         // Ensure the DiscordWebhookClient is properly configured with your webhook URL
         var webhookId = ulong.Parse(appSettings.WebHookId); // Your webhook ID
@@ -121,13 +191,13 @@ internal static class Program
 
         // Create an embed with Discord.Net
         var embed = new EmbedBuilder()
-            .WithTitle("DiscordUsernameChecker V1.6")
+            .WithTitle("DiscordUsernameChecker V1.7")
             .WithDescription("@everyone\nClaimed a username!")
             .WithColor(new Discord.Color(5814783)) // Discord.Net uses a specific Color structure.
             .AddField("USERNAME", usernameClaimed, true)
             .AddField("STATUS", statusCode.ToString(), true)
             .AddField("SOURCE", "Webhook Notification")
-            .WithFooter(footer => footer.Text = "DiscordUsernameChecker V1.6")
+            .WithFooter(footer => footer.Text = "DiscordUsernameChecker V1.7")
             .Build();
 
         try
@@ -146,44 +216,184 @@ internal static class Program
             }
         }
     }
+	public static async Task<string> TryClaimNoCaptcha(string username, CancellationToken cancellationToken)
+	{
+		if (cancellationToken.IsCancellationRequested)
+			return "";
 
-    public static async Task<bool> TryClaimUsername(string username, CancellationToken cancellationToken)
-    {
-        if (cancellationToken.IsCancellationRequested)
-            return false;
+		using (var claimClient = new HttpClient(new HttpClientHandler { Proxy = GetProxy(), UseProxy = true }))
+		{
+			claimClient.DefaultRequestHeaders.Clear();
+			claimClient.DefaultRequestHeaders.Add("Accept", "application/json");
+			claimClient.DefaultRequestHeaders.Add("X-Discord-Locale", "en-US");
+			claimClient.DefaultRequestHeaders.Add("Authorization", appSettings.Token);
+			claimClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9146 Chrome/120.0.6099.291 Electron/28.2.10 Safari/537.36");
+			claimClient.DefaultRequestHeaders.Add("X-Super-Properties", "eyJvcyI6IldpbmRvd3MiLCJicm93c2VyIjoiRGlzY29yZCBDbGllbnQiLCJyZWxlYXNlX2NoYW5uZWwiOiJzdGFibGUiLCJjbGllbnRfdmVyc2lvbiI6IjEuMC45MTQ2Iiwib3NfdmVyc2lvbiI6IjEwLjAuMjI2MzEiLCJvc19hcmNoIjoieDY0IiwiYXBwX2FyY2giOiJ4NjQiLCJzeXN0ZW1fbG9jYWxlIjoiZW4tVVMiLCJicm93c2VyX3VzZXJfYWdlbnQiOiJNb3ppbGxhLzUuMCAoV2luZG93cyBOVCAxMC4wOyBXaW42NDsgeDY0KSBBcHBsZVdlYktpdC81MzcuMzYgKEtIVE1MLCBsaWtlIEdlY2tvKSBkaXNjb3JkLzEuMC45MTQ2IENocm9tZS8xMjAuMC42MDk5LjI5MSBFbGVjdHJvbi8yOC4yLjEwIFNhZmFyaS81MzcuMzYiLCJicm93c2VyX3ZlcnNpb24iOiIyOC4yLjEwIiwiY2xpZW50X2J1aWxkX251bWJlciI6MjkxNTA3LCJuYXRpdmVfYnVpbGRfbnVtYmVyIjo0NzU0MywiY2xpZW50X2V2ZW50X3NvdXJjZSI6bnVsbCwiZGVzaWduX2lkIjowfQ==");
+			var claimJson = new ClaimJson { username = username, password = appSettings.Password };
+			var content = new StringContent(JsonSerializer.Serialize(claimJson), Encoding.UTF8, "application/json");
+			HttpResponseMessage response = await claimClient.PatchAsync("https://discord.com/api/v9/users/@me", content, cancellationToken);
 
-        var claimJson = new ClaimJson { username = username, password = appSettings.Password };
+			if (!response.IsSuccessStatusCode)
+			{
+				var data = JsonSerializer.Deserialize<CaptchaStuff>(await response.Content.ReadAsStringAsync());
+				return data.captcha_rqdata + ":" + data.captcha_sitekey;
+			}
+			else
+			{
+				AnsiConsole.Markup($"[green]Failed to claim username {username}. Status Code: {response.StatusCode}[/]\n");
+				if (appSettings.UseWebhook)
+				{
+					await PostToDiscordWebhook(username, (int)response.StatusCode);
+				}
+				return "";
+			}
+		}
+	}
+	public static async Task<bool> TryClaimUsername(string username, CancellationToken cancellationToken)
+	{
+		if (cancellationToken.IsCancellationRequested)
+			return false;
 
-        using (var claimClient = new HttpClient(new HttpClientHandler { Proxy = GetProxy(), UseProxy = true }))
-        {
-            claimClient.DefaultRequestHeaders.Clear();
-            claimClient.DefaultRequestHeaders.Add("Accept", "application/json");
-            claimClient.DefaultRequestHeaders.Add("X-Discord-Locale", "en-US");
-            claimClient.DefaultRequestHeaders.Add("Authorization", appSettings.Token);
-            claimClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0");
-            claimClient.DefaultRequestHeaders.Add("X-Super-Properties", "eyJvcyI6IldpbmRvd3MiLCJicm93c2VyIjoiQ2hyb21lIiwiZGV2aWNlIjoiIiwic3lzdGVtX2xvY2FsZSI6ImVuLVVTIiwiYnJvd3Nlcl91c2VyX2FnZW50IjoiTW96aWxsYS81LjAgKFdpbmRvd3MgTlQgMTAuMDsgV2luNjQ7IHg2NCkgQXBwbGVXZWJLaXQvNTM3LjM2IChLSFRNTCwgbGlrZSBHZWNrbykgQ2hyb21lLzEyNC4wLjAuMCBTYWZhcmkvNTM3LjM2IEVkZy8xMjQuMC4wLjAiLCJicm93c2VyX3ZlcnNpb24iOiIxMjQuMC4wLjAiLCJvc192ZXJzaW9uIjoiMTAiLCJyZWZlcnJlciI6Imh0dHBzOi8vd3d3LmJpbmcuY29tLyIsInJlZmVycmluZ19kb21haW4iOiJ3d3cuYmluZy5jb20iLCJzZWFyY2hfZW5naW5lIjoiYmluZyIsInJlZmVycmVyX2N1cnJlbnQiOiIiLCJyZWZlcnJpbmdfZG9tYWluX2N1cnJlbnQiOiIiLCJyZWxlYXNlX2NoYW5uZWwiOiJzdGFibGUiLCJjbGllbnRfYnVpbGRfbnVtYmVyIjoyOTA5OTgsImNsaWVudF9ldmVudF9zb3VyY2UiOm51bGwsImRlc2lnbl9pZCI6MH0=");
+		using (var captchaClient = new HttpClient())
+		{
+			captchaClient.DefaultRequestHeaders.Clear();
+			captchaClient.DefaultRequestHeaders.Add("Accept", "application/json");
+			captchaClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0");
 
-            var content = new StringContent(JsonSerializer.Serialize(claimJson), Encoding.UTF8, "application/json");
-            var response = await claimClient.PatchAsync("https://discord.com/api/v9/users/@me", content, cancellationToken);
+			string captchaProxy = GetCaptchaProxy();
+			var rq_data = await TryClaimNoCaptcha(username, cancellationToken);
+			if (string.IsNullOrEmpty(rq_data))
+			{
+				return true;
+			}
+			HttpResponseMessage responseCaptcha = await captchaClient.PostAsync($"https://api.hcoptcha.com/api/createTask", new StringContent(JsonSerializer.Serialize(new createTask
+			{
+				task_type = "hcaptchaEnterprise",
+				api_key = appSettings.HCoptchaKey,
+				data = new Data
+				{
+					proxy = GetCaptchaProxy(),
+					sitekey = rq_data.Split(':')[1],
+					url = "https://discord.com/api/v9/users/@me",
+					rqdata = rq_data.Split(':')[0]
+				},
+			}), Encoding.UTF8, "application/json"));
 
-            if (response.IsSuccessStatusCode)
-            {
-                AnsiConsole.Markup($"[green]Username Claimed: {username}[/]\n");
-                if (appSettings.UseWebhook)
+			if (!responseCaptcha.IsSuccessStatusCode)
+			{
+				AnsiConsole.Markup("[red]Initial captcha request failed.[/]\n");
+				return false;
+			}
+			int maxAttempts = 5;
+			for (int attempt = 1; attempt <= maxAttempts; attempt++)
+			{
+				if (cancellationToken.IsCancellationRequested)
+					return false;
+
+				createTaskResponse responseCaptchaContent = JsonSerializer.Deserialize<createTaskResponse>(await responseCaptcha.Content.ReadAsStringAsync());
+				Console.WriteLine(await responseCaptcha.Content.ReadAsStringAsync());
+				string captchaId = responseCaptchaContent.task_id;
+				HttpResponseMessage responseCaptchaSolve = await captchaClient.PostAsync(
+					"https://api.hcoptcha.com/api/getTaskData",
+					new StringContent(
+						JsonSerializer.Serialize(new getTaskData
+						{
+							api_key = appSettings.HCoptchaKey,
+							task_id = captchaId
+						}),
+						Encoding.UTF8,
+						"application/json"
+					)
+				);
+				var responseCaptchaSolveContent = JsonSerializer.Deserialize<getTaskDataResponse>(await responseCaptchaSolve.Content.ReadAsStringAsync());
+
+				while (responseCaptchaSolveContent.task.state == "processing")
                 {
-                    await PostToDiscordWebhook(username, (int)response.StatusCode, cancellationToken);
-                }
-                return true;
-            }
-            else
-            {
-                AnsiConsole.Markup($"[red]Failed to claim username {username}. Status Code: {response.StatusCode}[/]\n");
-                return false;
-            }
-        }
-    }
 
-    static async Task ConsumeUsernames(CancellationToken cancellationToken)
+                    AnsiConsole.Markup("[yellow]" + responseCaptchaSolveContent + "[/]\n");
+                    await Task.Delay(100); // Wait before retrying
+                    responseCaptchaSolve = await captchaClient.PostAsync(
+					    "https://api.hcoptcha.com/api/getTaskData",
+					    new StringContent(
+							JsonSerializer.Serialize(new getTaskData
+						    {
+							    api_key = appSettings.HCoptchaKey,
+							    task_id = captchaId
+						    }),
+						    Encoding.UTF8,
+						    "application/json"
+					    )
+				    );
+					responseCaptchaSolveContent = JsonSerializer.Deserialize<getTaskDataResponse>(await responseCaptchaSolve.Content.ReadAsStringAsync());
+					if (responseCaptchaSolveContent.task.state == "error")
+                    {
+						break;
+                    }
+					captchaId = responseCaptchaContent.task_id;
+				}
+				if (responseCaptchaSolveContent.task.state.Equals("completed"))
+				{           
+					return await ClaimUsernameWithCaptcha(username, responseCaptchaSolveContent.task.captcha_key, cancellationToken);
+				}
+				else
+				{
+					AnsiConsole.Markup($"[yellow]Captcha attempt {attempt} failed. Response: {responseCaptchaSolveContent}[/]\n");
+					captchaProxy = GetCaptchaProxy();
+					rq_data = await TryClaimNoCaptcha(username, cancellationToken);
+					if (string.IsNullOrEmpty(rq_data))
+					{
+						return true;
+					}
+					responseCaptcha = await captchaClient.PostAsync($"https://api.hcoptcha.com/api/createTask", new StringContent(JsonSerializer.Serialize(new createTask
+					{
+						task_type = "hcaptchaEnterprise",
+						api_key = appSettings.HCoptchaKey,
+						data = new Data
+						{
+							proxy = GetCaptchaProxy(),
+							sitekey = rq_data.Split(':')[1],
+							url = "https://discord.com/api/v9/users/@me",
+							rqdata = rq_data.Split(':')[0]
+						}
+					}), Encoding.UTF8, "application/json"));
+				}
+			}
+
+			AnsiConsole.Markup("[red]All captcha attempts failed.[/]\n");
+			return false;
+		}
+	}
+
+	private static async Task<bool> ClaimUsernameWithCaptcha(string username, string captchaSolve, CancellationToken cancellationToken)
+	{
+		using (var claimClient = new HttpClient(new HttpClientHandler { Proxy = GetProxy(), UseProxy = true }))
+		{
+			claimClient.DefaultRequestHeaders.Clear();
+			claimClient.DefaultRequestHeaders.Add("Accept", "application/json");
+			claimClient.DefaultRequestHeaders.Add("X-Discord-Locale", "en-US");
+			claimClient.DefaultRequestHeaders.Add("X-Captcha-Key", captchaSolve);
+			claimClient.DefaultRequestHeaders.Add("Authorization", appSettings.Token);
+			claimClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9146 Chrome/120.0.6099.291 Electron/28.2.10 Safari/537.36");
+			claimClient.DefaultRequestHeaders.Add("X-Super-Properties", "eyJvcyI6IldpbmRvd3MiLCJicm93c2VyIjoiRGlzY29yZCBDbGllbnQiLCJyZWxlYXNlX2NoYW5uZWwiOiJzdGFibGUiLCJjbGllbnRfdmVyc2lvbiI6IjEuMC45MTQ2Iiwib3NfdmVyc2lvbiI6IjEwLjAuMjI2MzEiLCJvc19hcmNoIjoieDY0IiwiYXBwX2FyY2giOiJ4NjQiLCJzeXN0ZW1fbG9jYWxlIjoiZW4tVVMiLCJicm93c2VyX3VzZXJfYWdlbnQiOiJNb3ppbGxhLzUuMCAoV2luZG93cyBOVCAxMC4wOyBXaW42NDsgeDY0KSBBcHBsZVdlYktpdC81MzcuMzYgKEtIVE1MLCBsaWtlIEdlY2tvKSBkaXNjb3JkLzEuMC45MTQ2IENocm9tZS8xMjAuMC42MDk5LjI5MSBFbGVjdHJvbi8yOC4yLjEwIFNhZmFyaS81MzcuMzYiLCJicm93c2VyX3ZlcnNpb24iOiIyOC4yLjEwIiwiY2xpZW50X2J1aWxkX251bWJlciI6MjkxNTA3LCJuYXRpdmVfYnVpbGRfbnVtYmVyIjo0NzU0MywiY2xpZW50X2V2ZW50X3NvdXJjZSI6bnVsbCwiZGVzaWduX2lkIjowfQ==");
+			var claimJson = new ClaimJson { username = username, password = appSettings.Password };
+			var content = new StringContent(JsonSerializer.Serialize(claimJson), Encoding.UTF8, "application/json");
+			HttpResponseMessage response = await claimClient.PatchAsync("https://discord.com/api/v9/users/@me", content, cancellationToken);
+
+			if (response.IsSuccessStatusCode)
+			{
+				AnsiConsole.Markup($"[green]Username Claimed: {username}[/]\n");
+				return true;
+			}
+			else
+			{
+				AnsiConsole.Markup($"[red]Failed to claim username {username}. Status Code: {response.StatusCode}, {captchaSolve}[/]\n");
+				return false;
+			}
+		}
+	}
+
+
+	static async Task ConsumeUsernames(CancellationToken cancellationToken)
     {
         while (!usernameQueue.IsEmpty && !cancellationToken.IsCancellationRequested)
         {
@@ -197,7 +407,7 @@ internal static class Program
                         CheckClient.DefaultRequestHeaders.Clear();
                         CheckClient.DefaultRequestHeaders.Add("Accept", "application/json");
                         CheckClient.DefaultRequestHeaders.Add("X-Discord-Locale", "en-US");
-                        CheckClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0");
+						CheckClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0");
                         string responseBody = await response.Content.ReadAsStringAsync();
                         CheckJson jsonObject = JsonSerializer.Deserialize<CheckJson>(responseBody);
 

@@ -10,6 +10,7 @@
     public string Password;
     public string WebHookId;
     public string WebHookToken;
+    public string HCoptchaKey;
     /* END SAVED CONFIG VALUES */
 
     public Settings(string file)
@@ -17,6 +18,7 @@
         SharpConfig.Configuration config = SharpConfig.Configuration.LoadFromFile(file);
         Threads = config["AppSettings"]["Threads"].IntValue;
         Debug = config["AppSettings"]["Debug"].BoolValue;
+        HCoptchaKey = config["AppSettings"]["HCoptchaKey"].StringValue;
         AutoClaim = config["AppSettings"]["AutoClaim"].BoolValue;
         UseWebhook = config["AppSettings"]["UseWebhook"].BoolValue;
         Token = config["AutoClaimSettings"]["Token"].StringValue;
